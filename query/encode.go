@@ -110,7 +110,13 @@ type Encoder interface {
 //
 // Multiple fields that encode to the same URL parameter name will be included
 // as multiple URL values of the same name.
-func Values(v interface{}) (url.Values, error) {
+func Values(v interface{}, tag string, urlTagOpts ...IUrlTagOption) (url.Values, error) {
+	if len(urlTagOpts) == 0 {
+		urlTagOpts = append(urlTagOpts, defaultOption)
+	}
+	if tag == "" {
+		tag = "url"
+	}
 	values := make(url.Values)
 	val := reflect.ValueOf(v)
 	for val.Kind() == reflect.Ptr {
@@ -128,14 +134,14 @@ func Values(v interface{}) (url.Values, error) {
 		return nil, fmt.Errorf("query: Values() expects struct input. Got %v", val.Kind())
 	}
 
-	err := reflectValue(values, val, "")
+	err := reflectValue(values, val, "", tag, urlTagOpts[0])
 	return values, err
 }
 
 // reflectValue populates the values parameter from the struct fields in val.
 // Embedded structs are followed recursively (using the rules defined in the
 // Values function documentation) breadth-first.
-func reflectValue(values url.Values, val reflect.Value, scope string) error {
+func reflectValue(values url.Values, val reflect.Value, scope string, tagName string, urlTagOpt IUrlTagOption) error {
 	var embedded []reflect.Value
 
 	typ := val.Type()
@@ -146,11 +152,12 @@ func reflectValue(values url.Values, val reflect.Value, scope string) error {
 		}
 
 		sv := val.Field(i)
-		tag := sf.Tag.Get("url")
-		if tag == "-" {
+		tag := sf.Tag.Get(tagName)
+		if tag == "-" || tag == "" {
 			continue
 		}
-		name, opts := parseTag(tag)
+
+		name := urlTagOpt.GetName(strings.Split(tag, ","))
 		if name == "" {
 			if sf.Anonymous && sv.Kind() == reflect.Struct {
 				// save embedded struct for later processing
@@ -164,6 +171,7 @@ func reflectValue(values url.Values, val reflect.Value, scope string) error {
 		if scope != "" {
 			name = scope + "[" + name + "]"
 		}
+		opts := options(strings.Split(strings.Replace(tag, name, "", 1), ","))
 
 		if opts.Contains("omitempty") && isEmptyValue(sv) {
 			continue
@@ -230,7 +238,7 @@ func reflectValue(values url.Values, val reflect.Value, scope string) error {
 		}
 
 		if sv.Kind() == reflect.Struct {
-			reflectValue(values, sv, name)
+			reflectValue(values, sv, name, tagName, urlTagOpt)
 			continue
 		}
 
@@ -238,7 +246,7 @@ func reflectValue(values url.Values, val reflect.Value, scope string) error {
 	}
 
 	for _, f := range embedded {
-		if err := reflectValue(values, f, scope); err != nil {
+		if err := reflectValue(values, f, scope, tagName, urlTagOpt); err != nil {
 			return err
 		}
 	}
@@ -247,7 +255,7 @@ func reflectValue(values url.Values, val reflect.Value, scope string) error {
 }
 
 // valueString returns the string representation of a value.
-func valueString(v reflect.Value, opts tagOptions) string {
+func valueString(v reflect.Value, opts options) string {
 	for v.Kind() == reflect.Ptr {
 		if v.IsNil() {
 			return ""
@@ -298,23 +306,37 @@ func isEmptyValue(v reflect.Value) bool {
 	return false
 }
 
-// tagOptions is the string following a comma in a struct field's "url" tag, or
-// the empty string. It does not include the leading comma.
-type tagOptions []string
+//// tagOptions is the string following a comma in a struct field's "url" tag, or
+//// the empty string. It does not include the leading comma.
+type options []string
 
-// parseTag splits a struct field's url tag into its name and comma-separated
-// options.
-func parseTag(tag string) (string, tagOptions) {
-	s := strings.Split(tag, ",")
-	return s[0], s[1:]
-}
-
+//
+//// parseTag splits a struct field's url tag into its name and comma-separated
+//// options.
+//func parseTag(tag string) (string, tagOptions) {
+//	s := strings.Split(tag, ",")
+//	return s[0], s[1:]
+//}
+//
 // Contains checks whether the tagOptions contains the specified option.
-func (o tagOptions) Contains(option string) bool {
+func (o options) Contains(option string) bool {
 	for _, s := range o {
 		if s == option {
 			return true
 		}
 	}
 	return false
+}
+
+var defaultOption = tagOption{}
+
+type IUrlTagOption interface {
+	GetName(tags []string) string
+}
+
+type tagOption struct {
+}
+
+func (tagOption) GetName(tags []string) string {
+	return tags[0]
 }
