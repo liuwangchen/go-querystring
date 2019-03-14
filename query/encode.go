@@ -165,7 +165,7 @@ func reflectValue(values url.Values, val reflect.Value, scope string, tagName st
 				continue
 			}
 
-			name = sf.Name
+			name = strings.ToLower(sf.Name)
 		}
 
 		if scope != "" {
