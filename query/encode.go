@@ -153,7 +153,7 @@ func reflectValue(values url.Values, val reflect.Value, scope string, tagName st
 
 		sv := val.Field(i)
 		tag := sf.Tag.Get(tagName)
-		if tag == "-" || tag == "" {
+		if tag == "-" {
 			continue
 		}
 
